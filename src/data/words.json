@@ -1,0 +1,14 @@
+[
+  {
+    "id": 1,
+    "word": "你好",
+    "pinyin": "nǐ hǎo",
+    "meaning": "안녕하세요"
+  },
+  {
+    "id": 2,
+    "word": "学习",
+    "pinyin": "xué xí",
+    "meaning": "공부하다, 배우다"
+  }
+]
