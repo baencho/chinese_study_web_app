@@ -31,9 +31,11 @@ function App() {
   const [entries, setEntries] = useState([]);
   const [form, setForm] = useState(EMPTY_FORM);
   const [query, setQuery] = useState('');
+  const [authMode, setAuthMode] = useState('login');
   const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
   const [invitationCode, setInvitationCode] = useState('');
-  const [isSendingLink, setIsSendingLink] = useState(false);
+  const [isSubmittingAuth, setIsSubmittingAuth] = useState(false);
   const [isLoadingWords, setIsLoadingWords] = useState(false);
   const [statusMessage, setStatusMessage] = useState('');
   const [errorMessage, setErrorMessage] = useState('');
@@ -167,41 +169,61 @@ function App() {
     }
   };
 
-  const sendLoginLink = async (event) => {
+  const submitAuth = async (event) => {
     event.preventDefault();
 
     const loginEmail = email.trim();
+    const loginPassword = password;
     const code = invitationCode.trim();
-    if (!loginEmail || !code) return;
+    const isSignup = authMode === 'signup';
+    if (!loginEmail || !loginPassword || (isSignup && !code)) return;
 
-    setIsSendingLink(true);
+    setIsSubmittingAuth(true);
     setStatusMessage('');
     setErrorMessage('');
 
     try {
-      const response = await fetch('/api/request-login', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          email: loginEmail,
-          code,
-          redirectTo: window.location.origin,
-        }),
-      });
-      const result = await response.json();
+      if (isSignup) {
+        const response = await fetch('/api/register', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            email: loginEmail,
+            password: loginPassword,
+            code,
+          }),
+        });
+        const result = await response.json();
 
-      if (!response.ok) {
-        throw new Error(result.error || '로그인 링크를 보낼 수 없습니다.');
+        if (!response.ok) {
+          throw new Error(result.error || '가입할 수 없습니다.');
+        }
       }
 
-      setStatusMessage('이메일로 로그인 링크를 보냈습니다.');
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email: loginEmail,
+        password: loginPassword,
+      });
+
+      if (error) throw error;
+
+      setSession(data.session);
+      setPassword('');
+      setInvitationCode('');
+      setStatusMessage(isSignup ? '가입하고 로그인했습니다.' : '');
     } catch (error) {
       setErrorMessage(error.message);
     }
 
-    setIsSendingLink(false);
+    setIsSubmittingAuth(false);
+  };
+
+  const switchAuthMode = (mode) => {
+    setAuthMode(mode);
+    setStatusMessage('');
+    setErrorMessage('');
   };
 
   const signOut = async () => {
@@ -248,7 +270,23 @@ function App() {
               </button>
             </div>
           ) : (
-            <form className="auth-form" onSubmit={sendLoginLink}>
+            <form className="auth-form" onSubmit={submitAuth}>
+              <div className="auth-mode-control" aria-label="인증 방식">
+                <button
+                  className={authMode === 'login' ? 'active' : ''}
+                  type="button"
+                  onClick={() => switchAuthMode('login')}
+                >
+                  로그인
+                </button>
+                <button
+                  className={authMode === 'signup' ? 'active' : ''}
+                  type="button"
+                  onClick={() => switchAuthMode('signup')}
+                >
+                  가입
+                </button>
+              </div>
               <label>
                 <span>이메일</span>
                 <input
@@ -260,18 +298,36 @@ function App() {
                 />
               </label>
               <label>
-                <span>Invitation code</span>
+                <span>비밀번호</span>
                 <input
                   type="password"
-                  value={invitationCode}
-                  onChange={(event) => setInvitationCode(event.target.value)}
-                  placeholder="초대 코드를 입력하세요"
-                  autoComplete="off"
+                  value={password}
+                  onChange={(event) => setPassword(event.target.value)}
+                  placeholder="6자 이상"
+                  autoComplete={authMode === 'signup' ? 'new-password' : 'current-password'}
                 />
               </label>
-              <button className="primary-button" type="submit" disabled={isSendingLink}>
+              {authMode === 'signup' && (
+                <label>
+                  <span>Invitation code</span>
+                  <input
+                    type="password"
+                    value={invitationCode}
+                    onChange={(event) => setInvitationCode(event.target.value)}
+                    placeholder="초대 코드를 입력하세요"
+                    autoComplete="off"
+                  />
+                </label>
+              )}
+              <button className="primary-button" type="submit" disabled={isSubmittingAuth}>
                 <LogIn size={18} />
-                <span>{isSendingLink ? '전송 중' : '로그인 링크 받기'}</span>
+                <span>
+                  {isSubmittingAuth
+                    ? '처리 중'
+                    : authMode === 'signup'
+                      ? '가입하고 로그인'
+                      : '로그인'}
+                </span>
               </button>
             </form>
           )}
