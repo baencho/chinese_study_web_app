@@ -32,6 +32,7 @@ function App() {
   const [form, setForm] = useState(EMPTY_FORM);
   const [query, setQuery] = useState('');
   const [email, setEmail] = useState('');
+  const [invitationCode, setInvitationCode] = useState('');
   const [isSendingLink, setIsSendingLink] = useState(false);
   const [isLoadingWords, setIsLoadingWords] = useState(false);
   const [statusMessage, setStatusMessage] = useState('');
@@ -170,23 +171,34 @@ function App() {
     event.preventDefault();
 
     const loginEmail = email.trim();
-    if (!loginEmail) return;
+    const code = invitationCode.trim();
+    if (!loginEmail || !code) return;
 
     setIsSendingLink(true);
     setStatusMessage('');
     setErrorMessage('');
 
-    const { error } = await supabase.auth.signInWithOtp({
-      email: loginEmail,
-      options: {
-        emailRedirectTo: window.location.origin,
-      },
-    });
+    try {
+      const response = await fetch('/api/request-login', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          email: loginEmail,
+          code,
+          redirectTo: window.location.origin,
+        }),
+      });
+      const result = await response.json();
 
-    if (error) {
-      setErrorMessage(error.message);
-    } else {
+      if (!response.ok) {
+        throw new Error(result.error || '로그인 링크를 보낼 수 없습니다.');
+      }
+
       setStatusMessage('이메일로 로그인 링크를 보냈습니다.');
+    } catch (error) {
+      setErrorMessage(error.message);
     }
 
     setIsSendingLink(false);
@@ -245,6 +257,16 @@ function App() {
                   onChange={(event) => setEmail(event.target.value)}
                   placeholder="you@example.com"
                   autoComplete="email"
+                />
+              </label>
+              <label>
+                <span>Invitation code</span>
+                <input
+                  type="password"
+                  value={invitationCode}
+                  onChange={(event) => setInvitationCode(event.target.value)}
+                  placeholder="초대 코드를 입력하세요"
+                  autoComplete="off"
                 />
               </label>
               <button className="primary-button" type="submit" disabled={isSendingLink}>
