@@ -28,6 +28,12 @@ button {
   cursor: pointer;
 }
 
+button:disabled,
+input:disabled {
+  cursor: not-allowed;
+  opacity: 0.62;
+}
+
 .app-shell {
   min-height: 100vh;
   padding: 32px;
@@ -111,7 +117,8 @@ h2 {
   gap: 16px;
 }
 
-.entry-form label {
+.entry-form label,
+.auth-form label {
   display: grid;
   gap: 8px;
   color: #37423c;
@@ -120,6 +127,7 @@ h2 {
 }
 
 .entry-form input,
+.auth-form input,
 .search-box input {
   width: 100%;
   min-height: 46px;
@@ -139,9 +147,108 @@ h2 {
 }
 
 .entry-form input:focus,
+.auth-form input:focus,
 .search-box input:focus {
   border-color: #26726b;
   box-shadow: 0 0 0 4px rgba(38, 114, 107, 0.14);
+}
+
+.auth-form {
+  display: grid;
+  gap: 12px;
+  margin-bottom: 18px;
+}
+
+.auth-form input {
+  padding: 0 14px;
+}
+
+.account-row,
+.loading-state,
+.setup-state,
+.secondary-button,
+.primary-button {
+  display: flex;
+  align-items: center;
+}
+
+.account-row {
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 18px;
+  padding: 10px;
+  border: 1px solid rgba(23, 32, 28, 0.1);
+  border-radius: 8px;
+  background: #fffdf8;
+}
+
+.account-row > span {
+  min-width: 0;
+  overflow: hidden;
+  color: #37423c;
+  font-size: 0.9rem;
+  font-weight: 800;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.secondary-button {
+  flex: 0 0 auto;
+  justify-content: center;
+  gap: 6px;
+  min-height: 36px;
+  padding: 0 10px;
+  border: 1px solid rgba(23, 32, 28, 0.14);
+  border-radius: 8px;
+  color: #37423c;
+  background: #f7f2e8;
+  font-weight: 800;
+}
+
+.secondary-button:hover {
+  background: #efe7d8;
+}
+
+.setup-state,
+.loading-state {
+  gap: 10px;
+  margin-bottom: 18px;
+  padding: 12px;
+  border-radius: 8px;
+  color: #6a4b1e;
+  background: #fff1d6;
+  font-weight: 800;
+}
+
+.setup-state {
+  display: grid;
+}
+
+.setup-state code {
+  display: block;
+  min-width: 0;
+  padding: 8px;
+  border-radius: 6px;
+  color: #17201c;
+  background: rgba(255, 253, 248, 0.8);
+  font-size: 0.78rem;
+  overflow-wrap: anywhere;
+}
+
+.setup-state p,
+.message {
+  margin: 0;
+}
+
+.message {
+  margin-bottom: 16px;
+  color: #26726b;
+  font-size: 0.9rem;
+  font-weight: 800;
+}
+
+.message.error {
+  color: #b8392f;
 }
 
 .primary-button {

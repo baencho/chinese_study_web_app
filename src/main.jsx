@@ -1,32 +1,104 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { BookOpenText, Languages, Plus, Search, Trash2 } from 'lucide-react';
+import {
+  AlertCircle,
+  BookOpenText,
+  Languages,
+  LoaderCircle,
+  LogIn,
+  LogOut,
+  Plus,
+  Search,
+  Trash2,
+} from 'lucide-react';
 import './styles.css';
-import starterWords from './data/words.json';
+import { isSupabaseConfigured, supabase } from './supabaseClient';
 
-const STORAGE_KEY = 'chinese-vocabulary-entries';
+const EMPTY_FORM = { word: '', pinyin: '', meaning: '' };
 
-function loadEntries() {
-  const savedEntries = window.localStorage.getItem(STORAGE_KEY);
-
-  if (!savedEntries) return starterWords;
-
-  try {
-    const parsedEntries = JSON.parse(savedEntries);
-    return Array.isArray(parsedEntries) ? parsedEntries : starterWords;
-  } catch {
-    return starterWords;
-  }
+function mapWordRecord(record) {
+  return {
+    id: record.id,
+    word: record.chinese,
+    pinyin: record.pinyin,
+    meaning: record.meaning,
+  };
 }
 
 function App() {
-  const [entries, setEntries] = useState(loadEntries);
-  const [form, setForm] = useState({ word: '', pinyin: '', meaning: '' });
+  const [session, setSession] = useState(null);
+  const [authLoading, setAuthLoading] = useState(isSupabaseConfigured);
+  const [entries, setEntries] = useState([]);
+  const [form, setForm] = useState(EMPTY_FORM);
   const [query, setQuery] = useState('');
+  const [email, setEmail] = useState('');
+  const [isSendingLink, setIsSendingLink] = useState(false);
+  const [isLoadingWords, setIsLoadingWords] = useState(false);
+  const [statusMessage, setStatusMessage] = useState('');
+  const [errorMessage, setErrorMessage] = useState('');
 
   useEffect(() => {
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(entries));
-  }, [entries]);
+    if (!isSupabaseConfigured) {
+      setAuthLoading(false);
+      return undefined;
+    }
+
+    let isMounted = true;
+
+    supabase.auth.getSession().then(({ data }) => {
+      if (!isMounted) return;
+      setSession(data.session);
+      setAuthLoading(false);
+    });
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, nextSession) => {
+      setSession(nextSession);
+      setStatusMessage('');
+      setErrorMessage('');
+    });
+
+    return () => {
+      isMounted = false;
+      subscription.unsubscribe();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!session?.user) {
+      setEntries([]);
+      return;
+    }
+
+    let isMounted = true;
+
+    async function loadWords() {
+      setIsLoadingWords(true);
+      setErrorMessage('');
+
+      const { data, error } = await supabase
+        .from('words')
+        .select('id,chinese,pinyin,meaning,created_at')
+        .order('created_at', { ascending: false });
+
+      if (!isMounted) return;
+
+      if (error) {
+        setErrorMessage(error.message);
+      } else {
+        setEntries(data.map(mapWordRecord));
+      }
+
+      setIsLoadingWords(false);
+    }
+
+    loadWords();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [session]);
 
   const filteredEntries = useMemo(() => {
     const value = query.trim().toLowerCase();
@@ -47,22 +119,87 @@ function App() {
   const addEntry = (event) => {
     event.preventDefault();
 
+    if (!session?.user) return;
+
     const word = form.word.trim();
     const pinyin = form.pinyin.trim();
     const meaning = form.meaning.trim();
 
     if (!word || !pinyin || !meaning) return;
 
-    setEntries((current) => [
-      { id: Date.now(), word, pinyin, meaning },
-      ...current,
-    ]);
-    setForm({ word: '', pinyin: '', meaning: '' });
+    saveEntry({ word, pinyin, meaning });
   };
 
-  const removeEntry = (id) => {
-    setEntries((current) => current.filter((entry) => entry.id !== id));
+  const saveEntry = async ({ word, pinyin, meaning }) => {
+    setErrorMessage('');
+
+    const { data, error } = await supabase
+      .from('words')
+      .insert({
+        user_id: session.user.id,
+        chinese: word,
+        pinyin,
+        meaning,
+      })
+      .select('id,chinese,pinyin,meaning,created_at')
+      .single();
+
+    if (error) {
+      setErrorMessage(error.message);
+      return;
+    }
+
+    setEntries((current) => [mapWordRecord(data), ...current]);
+    setForm(EMPTY_FORM);
   };
+
+  const removeEntry = async (id) => {
+    const previousEntries = entries;
+    setEntries((current) => current.filter((entry) => entry.id !== id));
+    setErrorMessage('');
+
+    const { error } = await supabase.from('words').delete().eq('id', id);
+
+    if (error) {
+      setEntries(previousEntries);
+      setErrorMessage(error.message);
+    }
+  };
+
+  const sendLoginLink = async (event) => {
+    event.preventDefault();
+
+    const loginEmail = email.trim();
+    if (!loginEmail) return;
+
+    setIsSendingLink(true);
+    setStatusMessage('');
+    setErrorMessage('');
+
+    const { error } = await supabase.auth.signInWithOtp({
+      email: loginEmail,
+      options: {
+        emailRedirectTo: window.location.origin,
+      },
+    });
+
+    if (error) {
+      setErrorMessage(error.message);
+    } else {
+      setStatusMessage('이메일로 로그인 링크를 보냈습니다.');
+    }
+
+    setIsSendingLink(false);
+  };
+
+  const signOut = async () => {
+    setStatusMessage('');
+    setErrorMessage('');
+    await supabase.auth.signOut();
+  };
+
+  const userEmail = session?.user?.email;
+  const canEdit = Boolean(session?.user && !isLoadingWords);
 
   return (
     <main className="app-shell">
@@ -78,6 +215,51 @@ function App() {
             </div>
           </div>
 
+          {!isSupabaseConfigured ? (
+            <div className="setup-state" role="status">
+              <AlertCircle size={20} />
+              <p>Supabase 환경변수를 먼저 설정해야 합니다.</p>
+              <code>VITE_SUPABASE_URL</code>
+              <code>VITE_SUPABASE_PUBLISHABLE_KEY</code>
+            </div>
+          ) : authLoading ? (
+            <div className="loading-state" role="status">
+              <LoaderCircle size={20} />
+              <span>로그인 상태 확인 중</span>
+            </div>
+          ) : session ? (
+            <div className="account-row">
+              <span>{userEmail}</span>
+              <button className="secondary-button" type="button" onClick={signOut}>
+                <LogOut size={16} />
+                <span>로그아웃</span>
+              </button>
+            </div>
+          ) : (
+            <form className="auth-form" onSubmit={sendLoginLink}>
+              <label>
+                <span>이메일</span>
+                <input
+                  type="email"
+                  value={email}
+                  onChange={(event) => setEmail(event.target.value)}
+                  placeholder="you@example.com"
+                  autoComplete="email"
+                />
+              </label>
+              <button className="primary-button" type="submit" disabled={isSendingLink}>
+                <LogIn size={18} />
+                <span>{isSendingLink ? '전송 중' : '로그인 링크 받기'}</span>
+              </button>
+            </form>
+          )}
+
+          {(statusMessage || errorMessage) && (
+            <p className={errorMessage ? 'message error' : 'message'}>
+              {errorMessage || statusMessage}
+            </p>
+          )}
+
           <form className="entry-form" onSubmit={addEntry}>
             <label>
               <span>단어</span>
@@ -87,6 +269,7 @@ function App() {
                 onChange={updateForm}
                 placeholder="예: 朋友"
                 autoComplete="off"
+                disabled={!canEdit}
               />
             </label>
 
@@ -98,6 +281,7 @@ function App() {
                 onChange={updateForm}
                 placeholder="예: péng you"
                 autoComplete="off"
+                disabled={!canEdit}
               />
             </label>
 
@@ -109,10 +293,11 @@ function App() {
                 onChange={updateForm}
                 placeholder="예: 친구"
                 autoComplete="off"
+                disabled={!canEdit}
               />
             </label>
 
-            <button className="primary-button" type="submit">
+            <button className="primary-button" type="submit" disabled={!canEdit}>
               <Plus size={18} />
               <span>목록에 추가</span>
             </button>
@@ -149,7 +334,12 @@ function App() {
               <span role="columnheader" aria-label="삭제" />
             </div>
 
-            {filteredEntries.length > 0 ? (
+            {isLoadingWords ? (
+              <div className="empty-state">
+                <LoaderCircle size={28} />
+                <p>단어를 불러오는 중입니다.</p>
+              </div>
+            ) : filteredEntries.length > 0 ? (
               filteredEntries.map((entry) => (
                 <div className="table-row" role="row" key={entry.id}>
                   <strong role="cell" lang="zh-Hans">
@@ -163,6 +353,7 @@ function App() {
                     onClick={() => removeEntry(entry.id)}
                     aria-label={`${entry.word} 삭제`}
                     title="삭제"
+                    disabled={!session}
                   >
                     <Trash2 size={17} />
                   </button>
@@ -171,7 +362,11 @@ function App() {
             ) : (
               <div className="empty-state">
                 <BookOpenText size={28} />
-                <p>아직 표시할 단어가 없습니다.</p>
+                <p>
+                  {session
+                    ? '아직 표시할 단어가 없습니다.'
+                    : '로그인하면 단어 목록이 표시됩니다.'}
+                </p>
               </div>
             )}
           </div>
