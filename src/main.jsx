@@ -114,6 +114,7 @@ function createQuizQuestion(entries) {
       promptLabel: '병음 고르기',
       prompt: target.word,
       answer: target.pinyin,
+      entry: target,
       options: buildToneOptions(target.pinyin),
     };
   }
@@ -124,6 +125,7 @@ function createQuizQuestion(entries) {
       promptLabel: '중국어 단어 고르기',
       prompt: target.meaning,
       answer: target.word,
+      entry: target,
       options: buildRandomOptions(target.word, entries.map((entry) => entry.word)),
     };
   }
@@ -133,6 +135,7 @@ function createQuizQuestion(entries) {
     promptLabel: '뜻 고르기',
     prompt: target.word,
     answer: target.meaning,
+    entry: target,
     options: buildRandomOptions(target.meaning, entries.map((entry) => entry.meaning)),
   };
 }
@@ -848,34 +851,38 @@ function App() {
               <ArrowLeft size={16} />
               <span>뒤로</span>
             </button>
-            <div>
-              <p className="eyebrow">Vocabulary List</p>
-              <h2>{selectedFolderName}</h2>
+            <div className="folder-title-group">
+              <div>
+                <p className="eyebrow">Vocabulary List</p>
+                <h2>{selectedFolderName}</h2>
+              </div>
+              <div className="count-badge">
+                <BookOpenText size={18} />
+                <span>{filteredEntries.length}개</span>
+              </div>
             </div>
-            <div className="count-badge">
-              <BookOpenText size={18} />
-              <span>{filteredEntries.length}개</span>
+            <div className="folder-actions">
+              <button
+                className="secondary-button quiz-button"
+                type="button"
+                onClick={openQuizDialog}
+                disabled={!canEdit || filteredEntries.length === 0}
+                title="퀴즈 풀기"
+              >
+                <Sparkles size={16} />
+                <span>퀴즈 풀기</span>
+              </button>
+              <button
+                className="primary-button add-word-button"
+                type="button"
+                onClick={openAddDialog}
+                disabled={!canEdit}
+                title="단어 추가"
+              >
+                <Plus size={18} />
+                <span>단어 추가</span>
+              </button>
             </div>
-            <button
-              className="secondary-button quiz-button"
-              type="button"
-              onClick={openQuizDialog}
-              disabled={!canEdit || filteredEntries.length === 0}
-              title="퀴즈 풀기"
-            >
-              <Sparkles size={16} />
-              <span>퀴즈 풀기</span>
-            </button>
-            <button
-              className="primary-button add-word-button"
-              type="button"
-              onClick={openAddDialog}
-              disabled={!canEdit}
-              title="단어 추가"
-            >
-              <Plus size={18} />
-              <span>단어 추가</span>
-            </button>
           </div>
 
           <div className="search-box">
@@ -1071,19 +1078,38 @@ function App() {
                 })}
               </div>
 
-              {selectedQuizAnswer && (
-                <p
-                  className={
-                    selectedQuizAnswer === quizQuestion.answer
-                      ? 'quiz-result correct'
-                      : 'quiz-result incorrect'
-                  }
-                >
-                  {selectedQuizAnswer === quizQuestion.answer
-                    ? '정답입니다.'
-                    : `정답: ${quizQuestion.answer}`}
-                </p>
-              )}
+              <div
+                className={
+                  selectedQuizAnswer === quizQuestion.answer
+                    ? 'quiz-result correct'
+                    : 'quiz-result incorrect'
+                }
+                aria-live="polite"
+              >
+                {selectedQuizAnswer && (
+                  <>
+                    <p>
+                      {selectedQuizAnswer === quizQuestion.answer
+                        ? '정답입니다.'
+                        : '틀렸습니다.'}
+                    </p>
+                    <dl className="quiz-answer-detail">
+                      <div>
+                        <dt>단어</dt>
+                        <dd lang="zh-Hans">{quizQuestion.entry.word}</dd>
+                      </div>
+                      <div>
+                        <dt>병음</dt>
+                        <dd>{quizQuestion.entry.pinyin}</dd>
+                      </div>
+                      <div>
+                        <dt>뜻</dt>
+                        <dd>{quizQuestion.entry.meaning}</dd>
+                      </div>
+                    </dl>
+                  </>
+                )}
+              </div>
             </div>
 
             <div className="dialog-actions">
