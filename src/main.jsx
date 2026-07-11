@@ -3,7 +3,10 @@ import { createRoot } from 'react-dom/client';
 import {
   AlertCircle,
   BookOpenText,
+  ArrowLeft,
   FileUp,
+  Folder,
+  FolderPlus,
   Languages,
   LoaderCircle,
   LogIn,
@@ -16,7 +19,7 @@ import {
 import './styles.css';
 import { isSupabaseConfigured, supabase } from './supabaseClient';
 
-const EMPTY_FORM = { word: '', pinyin: '', meaning: '' };
+const EMPTY_FORM = { word: '', pinyin: '', meaning: '', folderId: '' };
 const DESKTOP_QUERY = '(min-width: 821px) and (hover: hover) and (pointer: fine)';
 
 function mapWordRecord(record) {
@@ -26,6 +29,14 @@ function mapWordRecord(record) {
     pinyin: record.pinyin,
     meaning: record.meaning,
     memorized: Boolean(record.memorized),
+    folderId: record.folder_id || '',
+  };
+}
+
+function mapFolderRecord(record) {
+  return {
+    id: record.id,
+    name: record.name,
   };
 }
 
@@ -127,9 +138,14 @@ function App() {
   const [session, setSession] = useState(null);
   const [authLoading, setAuthLoading] = useState(isSupabaseConfigured);
   const [entries, setEntries] = useState([]);
+  const [folders, setFolders] = useState([]);
   const [form, setForm] = useState(EMPTY_FORM);
   const [query, setQuery] = useState('');
+  const [selectedFolderId, setSelectedFolderId] = useState('');
+  const [newFolderName, setNewFolderName] = useState('');
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
+  const [isFolderDialogOpen, setIsFolderDialogOpen] = useState(false);
+  const [isFolderViewOpen, setIsFolderViewOpen] = useState(false);
   const [authMode, setAuthMode] = useState('login');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -184,6 +200,7 @@ function App() {
   useEffect(() => {
     if (!session?.user) {
       setEntries([]);
+      setFolders([]);
       return;
     }
 
@@ -193,18 +210,25 @@ function App() {
       setIsLoadingWords(true);
       setErrorMessage('');
 
-      const { data, error } = await supabase
-        .from('words')
-        .select('id,chinese,pinyin,meaning,memorized,created_at')
-        .order('memorized', { ascending: true })
-        .order('created_at', { ascending: false });
+      const [foldersResult, wordsResult] = await Promise.all([
+        supabase
+          .from('folders')
+          .select('id,name,created_at')
+          .order('created_at', { ascending: true }),
+        supabase
+          .from('words')
+          .select('id,chinese,pinyin,meaning,memorized,folder_id,created_at')
+          .order('memorized', { ascending: true })
+          .order('created_at', { ascending: false }),
+      ]);
 
       if (!isMounted) return;
 
-      if (error) {
-        setErrorMessage(error.message);
+      if (foldersResult.error || wordsResult.error) {
+        setErrorMessage(foldersResult.error?.message || wordsResult.error.message);
       } else {
-        setEntries(data.map(mapWordRecord));
+        setFolders(foldersResult.data.map(mapFolderRecord));
+        setEntries(wordsResult.data.map(mapWordRecord));
       }
 
       setIsLoadingWords(false);
@@ -219,19 +243,41 @@ function App() {
 
   const filteredEntries = useMemo(() => {
     const value = query.trim().toLowerCase();
-    if (!value) return entries;
+    const folderFilteredEntries = entries.filter((entry) => {
+      if (!selectedFolderId) return !entry.folderId;
+      return entry.folderId === selectedFolderId;
+    });
 
-    const matchingEntries = entries.filter((entry) =>
-      [entry.word, entry.pinyin, entry.meaning].some((field) =>
-        field.toLowerCase().includes(value),
-      ),
-    );
+    const matchingEntries = value
+      ? folderFilteredEntries.filter((entry) =>
+          [entry.word, entry.pinyin, entry.meaning].some((field) =>
+            field.toLowerCase().includes(value),
+          ),
+        )
+      : folderFilteredEntries;
 
     return [...matchingEntries].sort((firstEntry, secondEntry) => {
       if (firstEntry.memorized === secondEntry.memorized) return 0;
       return firstEntry.memorized ? 1 : -1;
     });
-  }, [entries, query]);
+  }, [entries, query, selectedFolderId]);
+
+  const folderCards = useMemo(() => {
+    const countWords = (folderId) =>
+      entries.filter((entry) => (folderId ? entry.folderId === folderId : !entry.folderId))
+        .length;
+
+    return [
+      { id: '', name: '기본', count: countWords('') },
+      ...folders.map((folder) => ({
+        ...folder,
+        count: countWords(folder.id),
+      })),
+    ];
+  }, [entries, folders]);
+
+  const selectedFolderName =
+    folderCards.find((folder) => folder.id === selectedFolderId)?.name || '기본';
 
   const updateForm = (event) => {
     const { name, value } = event.target;
@@ -249,10 +295,10 @@ function App() {
 
     if (!word || !pinyin || !meaning) return;
 
-    saveEntry({ word, pinyin, meaning });
+    saveEntry({ word, pinyin, meaning, folderId: form.folderId });
   };
 
-  const saveEntry = async ({ word, pinyin, meaning }) => {
+  const saveEntry = async ({ word, pinyin, meaning, folderId }) => {
     setErrorMessage('');
 
     const { data, error } = await supabase
@@ -263,8 +309,9 @@ function App() {
         pinyin,
         meaning,
         memorized: false,
+        folder_id: folderId || null,
       })
-      .select('id,chinese,pinyin,meaning,memorized,created_at')
+      .select('id,chinese,pinyin,meaning,memorized,folder_id,created_at')
       .single();
 
     if (error) {
@@ -314,6 +361,60 @@ function App() {
     }
   };
 
+  const updateEntryFolder = async (entry, folderId) => {
+    const previousEntries = entries;
+    const nextFolderId = folderId || '';
+
+    setEntries((current) =>
+      current.map((currentEntry) =>
+        currentEntry.id === entry.id
+          ? { ...currentEntry, folderId: nextFolderId }
+          : currentEntry,
+      ),
+    );
+    setErrorMessage('');
+
+    const { error } = await supabase
+      .from('words')
+      .update({ folder_id: nextFolderId || null })
+      .eq('id', entry.id);
+
+    if (error) {
+      setEntries(previousEntries);
+      setErrorMessage(error.message);
+    }
+  };
+
+  const addFolder = async (event) => {
+    event.preventDefault();
+
+    const name = newFolderName.trim();
+    if (!name || !session?.user) return;
+
+    setErrorMessage('');
+    setStatusMessage('');
+
+    const { data, error } = await supabase
+      .from('folders')
+      .insert({
+        user_id: session.user.id,
+        name,
+      })
+      .select('id,name')
+      .single();
+
+    if (error) {
+      setErrorMessage(error.message);
+      return;
+    }
+
+    const nextFolder = mapFolderRecord(data);
+    setFolders((current) => [...current, nextFolder]);
+    setSelectedFolderId(nextFolder.id);
+    setNewFolderName('');
+    setIsFolderDialogOpen(false);
+  };
+
   const importEntries = async (event) => {
     const file = event.target.files?.[0];
     event.target.value = '';
@@ -341,9 +442,10 @@ function App() {
             pinyin: entry.pinyin,
             meaning: entry.meaning,
             memorized: false,
+            folder_id: form.folderId || null,
           })),
         )
-        .select('id,chinese,pinyin,meaning,memorized,created_at');
+        .select('id,chinese,pinyin,meaning,memorized,folder_id,created_at');
 
       if (error) throw error;
 
@@ -366,6 +468,10 @@ function App() {
     if (!canEdit) return;
     setStatusMessage('');
     setErrorMessage('');
+    setForm((current) => ({
+      ...current,
+      folderId: selectedFolderId,
+    }));
     setIsAddDialogOpen(true);
   };
 
@@ -373,6 +479,30 @@ function App() {
     if (isImporting) return;
     setForm(EMPTY_FORM);
     setIsAddDialogOpen(false);
+  };
+
+  const openFolderView = (folderId) => {
+    setSelectedFolderId(folderId);
+    setQuery('');
+    setIsFolderViewOpen(true);
+  };
+
+  const closeFolderView = () => {
+    setQuery('');
+    setIsFolderViewOpen(false);
+  };
+
+  const openFolderDialog = () => {
+    if (!canEdit) return;
+    setNewFolderName('');
+    setStatusMessage('');
+    setErrorMessage('');
+    setIsFolderDialogOpen(true);
+  };
+
+  const closeFolderDialog = () => {
+    setNewFolderName('');
+    setIsFolderDialogOpen(false);
   };
 
   const submitAuth = async (event) => {
@@ -545,15 +675,69 @@ function App() {
           )}
         </header>
 
-        <section className="list-panel" aria-label="내가 입력한 단어 목록">
+        {!isFolderViewOpen ? (
+        <section className="list-panel" aria-label="폴더 목록">
           <div className="list-header">
             <div>
+              <p className="eyebrow">Folders</p>
+              <h2>단어 폴더</h2>
+            </div>
+            <div className="count-badge">
+              <Folder size={18} />
+              <span>{folderCards.length}개</span>
+            </div>
+            <button
+              className="primary-button add-word-button"
+              type="button"
+              onClick={openFolderDialog}
+              disabled={!canEdit}
+              title="폴더 만들기"
+            >
+              <FolderPlus size={18} />
+              <span>폴더 만들기</span>
+            </button>
+          </div>
+
+          {session ? (
+            <div className="folder-grid">
+              {folderCards.map((folder) => (
+                <button
+                  className="folder-card"
+                  type="button"
+                  key={folder.id || 'default'}
+                  onClick={() => openFolderView(folder.id)}
+                >
+                  <Folder size={22} />
+                  <span>{folder.name}</span>
+                  <small>{folder.count}개</small>
+                </button>
+              ))}
+            </div>
+          ) : (
+            <div className="empty-state">
+              <Folder size={28} />
+              <p>로그인하면 폴더가 표시됩니다.</p>
+            </div>
+          )}
+        </section>
+        ) : (
+        <section className="list-panel" aria-label="내가 입력한 단어 목록">
+          <div className="list-header folder-view-header">
+            <button
+              className="secondary-button back-button"
+              type="button"
+              onClick={closeFolderView}
+            >
+              <ArrowLeft size={16} />
+              <span>뒤로</span>
+            </button>
+            <div>
               <p className="eyebrow">Vocabulary List</p>
-              <h2>내 단어 목록</h2>
+              <h2>{selectedFolderName}</h2>
             </div>
             <div className="count-badge">
               <BookOpenText size={18} />
-              <span>{entries.length}개</span>
+              <span>{filteredEntries.length}개</span>
             </div>
             <button
               className="primary-button add-word-button"
@@ -582,6 +766,7 @@ function App() {
               <span role="columnheader">단어</span>
               <span role="columnheader">병음</span>
               <span role="columnheader">뜻</span>
+              <span role="columnheader">폴더</span>
               <span role="columnheader">외움</span>
               <span role="columnheader" aria-label="삭제" />
             </div>
@@ -603,6 +788,21 @@ function App() {
                   </strong>
                   <span role="cell">{entry.pinyin}</span>
                   <span role="cell">{entry.meaning}</span>
+                  <label className="folder-cell" role="cell">
+                    <span className="sr-only">{entry.word} 폴더</span>
+                    <select
+                      value={entry.folderId}
+                      onChange={(event) => updateEntryFolder(entry, event.target.value)}
+                      disabled={!session}
+                    >
+                      <option value="">기본</option>
+                      {folders.map((folder) => (
+                        <option value={folder.id} key={folder.id}>
+                          {folder.name}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
                   <label className="memorized-toggle" role="cell">
                     <input
                       type="checkbox"
@@ -636,7 +836,59 @@ function App() {
             )}
           </div>
         </section>
+        )}
       </section>
+
+      {isFolderDialogOpen && (
+        <div className="dialog-backdrop" role="presentation" onMouseDown={closeFolderDialog}>
+          <section
+            className="entry-dialog compact-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="folderDialogTitle"
+            onMouseDown={(event) => event.stopPropagation()}
+          >
+            <div className="dialog-header">
+              <div>
+                <p className="eyebrow">New Folder</p>
+                <h2 id="folderDialogTitle">폴더 만들기</h2>
+              </div>
+              <button
+                className="icon-button"
+                type="button"
+                onClick={closeFolderDialog}
+                aria-label="닫기"
+                title="닫기"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <form className="entry-form" onSubmit={addFolder}>
+              <label>
+                <span>폴더 이름</span>
+                <input
+                  value={newFolderName}
+                  onChange={(event) => setNewFolderName(event.target.value)}
+                  placeholder="예: HSK 5급"
+                  disabled={!canEdit}
+                  autoFocus
+                />
+              </label>
+
+              <div className="dialog-actions">
+                <button className="secondary-button" type="button" onClick={closeFolderDialog}>
+                  취소
+                </button>
+                <button className="primary-button" type="submit" disabled={!canEdit}>
+                  <FolderPlus size={18} />
+                  <span>만들기</span>
+                </button>
+              </div>
+            </form>
+          </section>
+        </div>
+      )}
 
       {isAddDialogOpen && (
         <div className="dialog-backdrop" role="presentation" onMouseDown={closeAddDialog}>
@@ -699,6 +951,23 @@ function App() {
                   autoComplete="off"
                   disabled={!canEdit}
                 />
+              </label>
+
+              <label>
+                <span>폴더</span>
+                <select
+                  name="folderId"
+                  value={form.folderId}
+                  onChange={updateForm}
+                  disabled={!canEdit}
+                >
+                  <option value="">기본</option>
+                  {folders.map((folder) => (
+                    <option value={folder.id} key={folder.id}>
+                      {folder.name}
+                    </option>
+                  ))}
+                </select>
               </label>
 
               <div className="dialog-actions">
