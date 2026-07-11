@@ -25,6 +25,7 @@ function mapWordRecord(record) {
     word: record.chinese,
     pinyin: record.pinyin,
     meaning: record.meaning,
+    memorized: Boolean(record.memorized),
   };
 }
 
@@ -194,7 +195,8 @@ function App() {
 
       const { data, error } = await supabase
         .from('words')
-        .select('id,chinese,pinyin,meaning,created_at')
+        .select('id,chinese,pinyin,meaning,memorized,created_at')
+        .order('memorized', { ascending: true })
         .order('created_at', { ascending: false });
 
       if (!isMounted) return;
@@ -219,11 +221,16 @@ function App() {
     const value = query.trim().toLowerCase();
     if (!value) return entries;
 
-    return entries.filter((entry) =>
+    const matchingEntries = entries.filter((entry) =>
       [entry.word, entry.pinyin, entry.meaning].some((field) =>
         field.toLowerCase().includes(value),
       ),
     );
+
+    return [...matchingEntries].sort((firstEntry, secondEntry) => {
+      if (firstEntry.memorized === secondEntry.memorized) return 0;
+      return firstEntry.memorized ? 1 : -1;
+    });
   }, [entries, query]);
 
   const updateForm = (event) => {
@@ -255,8 +262,9 @@ function App() {
         chinese: word,
         pinyin,
         meaning,
+        memorized: false,
       })
-      .select('id,chinese,pinyin,meaning,created_at')
+      .select('id,chinese,pinyin,meaning,memorized,created_at')
       .single();
 
     if (error) {
@@ -275,6 +283,30 @@ function App() {
     setErrorMessage('');
 
     const { error } = await supabase.from('words').delete().eq('id', id);
+
+    if (error) {
+      setEntries(previousEntries);
+      setErrorMessage(error.message);
+    }
+  };
+
+  const toggleMemorized = async (entry) => {
+    const nextMemorized = !entry.memorized;
+    const previousEntries = entries;
+
+    setEntries((current) =>
+      current.map((currentEntry) =>
+        currentEntry.id === entry.id
+          ? { ...currentEntry, memorized: nextMemorized }
+          : currentEntry,
+      ),
+    );
+    setErrorMessage('');
+
+    const { error } = await supabase
+      .from('words')
+      .update({ memorized: nextMemorized })
+      .eq('id', entry.id);
 
     if (error) {
       setEntries(previousEntries);
@@ -308,9 +340,10 @@ function App() {
             chinese: entry.word,
             pinyin: entry.pinyin,
             meaning: entry.meaning,
+            memorized: false,
           })),
         )
-        .select('id,chinese,pinyin,meaning,created_at');
+        .select('id,chinese,pinyin,meaning,memorized,created_at');
 
       if (error) throw error;
 
@@ -549,6 +582,7 @@ function App() {
               <span role="columnheader">단어</span>
               <span role="columnheader">병음</span>
               <span role="columnheader">뜻</span>
+              <span role="columnheader">외움</span>
               <span role="columnheader" aria-label="삭제" />
             </div>
 
@@ -559,12 +593,25 @@ function App() {
               </div>
             ) : filteredEntries.length > 0 ? (
               filteredEntries.map((entry) => (
-                <div className="table-row" role="row" key={entry.id}>
+                <div
+                  className={entry.memorized ? 'table-row memorized-row' : 'table-row'}
+                  role="row"
+                  key={entry.id}
+                >
                   <strong role="cell" lang="zh-Hans">
                     {entry.word}
                   </strong>
                   <span role="cell">{entry.pinyin}</span>
                   <span role="cell">{entry.meaning}</span>
+                  <label className="memorized-toggle" role="cell">
+                    <input
+                      type="checkbox"
+                      checked={entry.memorized}
+                      onChange={() => toggleMemorized(entry)}
+                      disabled={!session}
+                    />
+                    <span>{entry.memorized ? '완료' : '미완료'}</span>
+                  </label>
                   <button
                     className="icon-button"
                     type="button"

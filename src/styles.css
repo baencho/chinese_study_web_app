@@ -380,7 +380,7 @@ h2 {
 
 .table-row {
   display: grid;
-  grid-template-columns: minmax(90px, 1fr) minmax(100px, 1fr) minmax(120px, 1.4fr) 44px;
+  grid-template-columns: minmax(90px, 1fr) minmax(100px, 1fr) minmax(120px, 1.4fr) 92px 44px;
   align-items: center;
   min-height: 58px;
   border-bottom: 1px solid rgba(23, 32, 28, 0.08);
@@ -409,6 +409,30 @@ h2 {
   font-family: "Noto Sans SC", "Microsoft YaHei", sans-serif;
   font-size: 1.35rem;
   font-weight: 800;
+}
+
+.memorized-row {
+  background: #fbf7ef;
+}
+
+.memorized-row strong,
+.memorized-row span {
+  color: #7a7f73;
+}
+
+.memorized-toggle {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: #37423c;
+  font-size: 0.82rem;
+  font-weight: 800;
+}
+
+.memorized-toggle input {
+  width: 18px;
+  height: 18px;
+  accent-color: #26726b;
 }
 
 .icon-button {
@@ -539,12 +563,13 @@ h2 {
   }
 
   .table-row strong,
-  .table-row span {
+  .table-row span,
+  .memorized-toggle {
     grid-column: 1;
   }
 
   .icon-button {
     grid-column: 2;
-    grid-row: 1 / span 3;
+    grid-row: 1 / span 4;
   }
 }

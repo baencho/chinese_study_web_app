@@ -4,8 +4,12 @@ create table if not exists words (
   chinese text not null,
   pinyin text not null,
   meaning text not null,
+  memorized boolean default false not null,
   created_at timestamptz default now() not null
 );
+
+alter table words
+add column if not exists memorized boolean default false not null;
 
 alter table words enable row level security;
 
