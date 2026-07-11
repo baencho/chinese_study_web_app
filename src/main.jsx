@@ -8,6 +8,7 @@ import {
   LoaderCircle,
   LogIn,
   LogOut,
+  X,
   Plus,
   Search,
   Trash2,
@@ -80,10 +81,13 @@ function parseImportFile(fileName, fileText) {
     return parsed.map(normalizeImportedEntry).filter(Boolean);
   }
 
-  const rows = parseCsvRows(fileText);
+  const rows = parseCsvRows(fileText).map((row, index) => ({
+    lineNumber: index + 1,
+    values: row,
+  }));
   if (rows.length === 0) return [];
 
-  const firstRow = rows[0].map((value) => value.trim().toLowerCase());
+  const firstRow = rows[0].values.map((value) => value.trim().toLowerCase());
   const hasHeader =
     firstRow.includes('word') ||
     firstRow.includes('chinese') ||
@@ -91,15 +95,31 @@ function parseImportFile(fileName, fileText) {
     firstRow.includes('meaning');
   const header = hasHeader ? firstRow : ['word', 'pinyin', 'meaning'];
   const dataRows = hasHeader ? rows.slice(1) : rows;
+  const invalidRows = dataRows.filter(({ values }) => values.length !== header.length);
 
-  return dataRows
-    .map((row) => {
+  if (invalidRows.length > 0) {
+    const lines = invalidRows.map(({ lineNumber }) => lineNumber).join(', ');
+    throw new Error(
+      `${lines}번째 줄의 컬럼 수가 맞지 않습니다. 쉼표가 들어간 뜻은 큰따옴표로 감싸주세요.`,
+    );
+  }
+
+  const importedEntries = dataRows
+    .map(({ values, lineNumber }) => {
       const record = Object.fromEntries(
-        header.map((key, index) => [key, row[index] ?? '']),
+        header.map((key, index) => [key, values[index] ?? '']),
       );
-      return normalizeImportedEntry(record);
+      const normalizedEntry = normalizeImportedEntry(record);
+
+      if (!normalizedEntry) {
+        throw new Error(`${lineNumber}번째 줄에 비어 있는 필수값이 있습니다.`);
+      }
+
+      return normalizedEntry;
     })
     .filter(Boolean);
+
+  return importedEntries;
 }
 
 function App() {
@@ -108,6 +128,7 @@ function App() {
   const [entries, setEntries] = useState([]);
   const [form, setForm] = useState(EMPTY_FORM);
   const [query, setQuery] = useState('');
+  const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
   const [authMode, setAuthMode] = useState('login');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -245,6 +266,7 @@ function App() {
 
     setEntries((current) => [mapWordRecord(data), ...current]);
     setForm(EMPTY_FORM);
+    setIsAddDialogOpen(false);
   };
 
   const removeEntry = async (id) => {
@@ -305,6 +327,19 @@ function App() {
     if (!canEdit || isImporting) {
       event.preventDefault();
     }
+  };
+
+  const openAddDialog = () => {
+    if (!canEdit) return;
+    setStatusMessage('');
+    setErrorMessage('');
+    setIsAddDialogOpen(true);
+  };
+
+  const closeAddDialog = () => {
+    if (isImporting) return;
+    setForm(EMPTY_FORM);
+    setIsAddDialogOpen(false);
   };
 
   const submitAuth = async (event) => {
@@ -376,7 +411,7 @@ function App() {
   return (
     <main className="app-shell">
       <section className="workspace">
-        <aside className="study-panel" aria-label="중국어 단어 입력">
+        <header className="study-panel" aria-label="계정 및 앱 정보">
           <div className="brand-row">
             <div className="brand-mark" aria-hidden="true">
               <Languages size={24} />
@@ -475,71 +510,7 @@ function App() {
               {errorMessage || statusMessage}
             </p>
           )}
-
-          <form className="entry-form" onSubmit={addEntry}>
-            <label>
-              <span>단어</span>
-              <input
-                name="word"
-                value={form.word}
-                onChange={updateForm}
-                placeholder="예: 朋友"
-                autoComplete="off"
-                disabled={!canEdit}
-              />
-            </label>
-
-            <label>
-              <span>병음</span>
-              <input
-                name="pinyin"
-                value={form.pinyin}
-                onChange={updateForm}
-                placeholder="예: péng you"
-                autoComplete="off"
-                disabled={!canEdit}
-              />
-            </label>
-
-            <label>
-              <span>뜻</span>
-              <input
-                name="meaning"
-                value={form.meaning}
-                onChange={updateForm}
-                placeholder="예: 친구"
-                autoComplete="off"
-                disabled={!canEdit}
-              />
-            </label>
-
-            <button className="primary-button" type="submit" disabled={!canEdit}>
-              <Plus size={18} />
-              <span>목록에 추가</span>
-            </button>
-          </form>
-
-          {canImportFiles && (
-            <div className="import-panel">
-              <input
-                id="wordImportFile"
-                type="file"
-                accept=".csv,.json,application/json,text/csv"
-                onChange={importEntries}
-                disabled={!canEdit || isImporting}
-              />
-              <label
-                className="secondary-button import-button"
-                htmlFor="wordImportFile"
-                aria-disabled={!canEdit || isImporting}
-                onClick={preventImportWhenDisabled}
-              >
-                <FileUp size={16} />
-                <span>{isImporting ? '가져오는 중' : 'CSV/JSON 가져오기'}</span>
-              </label>
-            </div>
-          )}
-        </aside>
+        </header>
 
         <section className="list-panel" aria-label="내가 입력한 단어 목록">
           <div className="list-header">
@@ -551,6 +522,16 @@ function App() {
               <BookOpenText size={18} />
               <span>{entries.length}개</span>
             </div>
+            <button
+              className="primary-button add-word-button"
+              type="button"
+              onClick={openAddDialog}
+              disabled={!canEdit}
+              title="단어 추가"
+            >
+              <Plus size={18} />
+              <span>단어 추가</span>
+            </button>
           </div>
 
           <div className="search-box">
@@ -609,6 +590,104 @@ function App() {
           </div>
         </section>
       </section>
+
+      {isAddDialogOpen && (
+        <div className="dialog-backdrop" role="presentation" onMouseDown={closeAddDialog}>
+          <section
+            className="entry-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="entryDialogTitle"
+            onMouseDown={(event) => event.stopPropagation()}
+          >
+            <div className="dialog-header">
+              <div>
+                <p className="eyebrow">New Word</p>
+                <h2 id="entryDialogTitle">단어 추가</h2>
+              </div>
+              <button
+                className="icon-button"
+                type="button"
+                onClick={closeAddDialog}
+                aria-label="닫기"
+                title="닫기"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <form className="entry-form" onSubmit={addEntry}>
+              <label>
+                <span>단어</span>
+                <input
+                  name="word"
+                  value={form.word}
+                  onChange={updateForm}
+                  placeholder="예: 朋友"
+                  autoComplete="off"
+                  disabled={!canEdit}
+                  autoFocus
+                />
+              </label>
+
+              <label>
+                <span>병음</span>
+                <input
+                  name="pinyin"
+                  value={form.pinyin}
+                  onChange={updateForm}
+                  placeholder="예: péng you"
+                  autoComplete="off"
+                  disabled={!canEdit}
+                />
+              </label>
+
+              <label>
+                <span>뜻</span>
+                <input
+                  name="meaning"
+                  value={form.meaning}
+                  onChange={updateForm}
+                  placeholder="예: 친구"
+                  autoComplete="off"
+                  disabled={!canEdit}
+                />
+              </label>
+
+              <div className="dialog-actions">
+                <button className="secondary-button" type="button" onClick={closeAddDialog}>
+                  취소
+                </button>
+                <button className="primary-button" type="submit" disabled={!canEdit}>
+                  <Plus size={18} />
+                  <span>추가</span>
+                </button>
+              </div>
+            </form>
+
+            {canImportFiles && (
+              <div className="import-panel">
+                <input
+                  id="wordImportFile"
+                  type="file"
+                  accept=".csv,.json,application/json,text/csv"
+                  onChange={importEntries}
+                  disabled={!canEdit || isImporting}
+                />
+                <label
+                  className="secondary-button import-button"
+                  htmlFor="wordImportFile"
+                  aria-disabled={!canEdit || isImporting}
+                  onClick={preventImportWhenDisabled}
+                >
+                  <FileUp size={16} />
+                  <span>{isImporting ? '가져오는 중' : 'CSV/JSON 가져오기'}</span>
+                </label>
+              </div>
+            )}
+          </section>
+        </div>
+      )}
     </main>
   );
 }

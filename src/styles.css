@@ -45,7 +45,7 @@ input:disabled {
 
 .workspace {
   display: grid;
-  grid-template-columns: minmax(280px, 380px) minmax(0, 1fr);
+  grid-template-columns: 1fr;
   gap: 24px;
   width: min(1180px, 100%);
   margin: 0 auto;
@@ -60,7 +60,10 @@ input:disabled {
 }
 
 .study-panel {
-  align-self: start;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(280px, 380px);
+  align-items: center;
+  gap: 20px;
   padding: 24px;
 }
 
@@ -75,7 +78,6 @@ input:disabled {
 
 .brand-row {
   gap: 14px;
-  margin-bottom: 28px;
 }
 
 .brand-mark {
@@ -156,7 +158,6 @@ h2 {
 .auth-form {
   display: grid;
   gap: 12px;
-  margin-bottom: 18px;
 }
 
 .auth-form input {
@@ -199,7 +200,6 @@ h2 {
 .account-row {
   justify-content: space-between;
   gap: 10px;
-  margin-bottom: 18px;
   padding: 10px;
   border: 1px solid rgba(23, 32, 28, 0.1);
   border-radius: 8px;
@@ -260,7 +260,6 @@ h2 {
 .setup-state,
 .loading-state {
   gap: 10px;
-  margin-bottom: 18px;
   padding: 12px;
   border-radius: 8px;
   color: #6a4b1e;
@@ -289,7 +288,7 @@ h2 {
 }
 
 .message {
-  margin-bottom: 16px;
+  grid-column: 1 / -1;
   color: #26726b;
   font-size: 0.9rem;
   font-weight: 800;
@@ -326,6 +325,11 @@ h2 {
   margin-bottom: 18px;
 }
 
+.list-header > div:first-child {
+  min-width: 0;
+  margin-right: auto;
+}
+
 .count-badge {
   flex: 0 0 auto;
   gap: 7px;
@@ -335,6 +339,13 @@ h2 {
   color: #9d2f27;
   background: #ffe7dc;
   font-weight: 800;
+}
+
+.add-word-button {
+  flex: 0 0 auto;
+  min-width: 132px;
+  margin-top: 0;
+  padding: 0 14px;
 }
 
 .search-box {
@@ -433,12 +444,60 @@ h2 {
   font-weight: 700;
 }
 
+.dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: grid;
+  place-items: center;
+  padding: 18px;
+  background: rgba(23, 32, 28, 0.38);
+}
+
+.entry-dialog {
+  width: min(460px, 100%);
+  max-height: min(720px, calc(100vh - 36px));
+  overflow: auto;
+  padding: 22px;
+  border: 1px solid rgba(23, 32, 28, 0.12);
+  border-radius: 8px;
+  background: #fffdf8;
+  box-shadow: 0 28px 80px rgba(23, 32, 28, 0.22);
+}
+
+.dialog-header,
+.dialog-actions {
+  display: flex;
+  align-items: center;
+}
+
+.dialog-header {
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 18px;
+}
+
+.dialog-actions {
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.dialog-actions .secondary-button,
+.dialog-actions .primary-button {
+  min-width: 96px;
+  margin-top: 0;
+}
+
 @media (max-width: 820px) {
   .app-shell {
     padding: 18px;
   }
 
   .workspace {
+    grid-template-columns: 1fr;
+  }
+
+  .study-panel {
     grid-template-columns: 1fr;
   }
 }
@@ -458,6 +517,10 @@ h2 {
   .list-header {
     align-items: flex-start;
     flex-direction: column;
+  }
+
+  .add-word-button {
+    width: 100%;
   }
 
   .table-row {
