@@ -13,6 +13,7 @@ import {
   LogOut,
   X,
   Plus,
+  Sparkles,
   Search,
   Trash2,
 } from 'lucide-react';
@@ -21,6 +22,16 @@ import { isSupabaseConfigured, supabase } from './supabaseClient';
 
 const EMPTY_FORM = { word: '', pinyin: '', meaning: '', folderId: '' };
 const DESKTOP_QUERY = '(min-width: 821px) and (hover: hover) and (pointer: fine)';
+const QUIZ_TYPES = ['word-pinyin', 'word-meaning', 'meaning-word'];
+const TONE_GROUPS = [
+  ['ā', 'á', 'ǎ', 'à'],
+  ['ē', 'é', 'ě', 'è'],
+  ['ī', 'í', 'ǐ', 'ì'],
+  ['ō', 'ó', 'ǒ', 'ò'],
+  ['ū', 'ú', 'ǔ', 'ù'],
+  ['ǖ', 'ǘ', 'ǚ', 'ǜ'],
+];
+const TONE_MARKS = new Set(TONE_GROUPS.flat());
 
 function mapWordRecord(record) {
   return {
@@ -37,6 +48,92 @@ function mapFolderRecord(record) {
   return {
     id: record.id,
     name: record.name,
+  };
+}
+
+function pickRandom(items) {
+  return items[Math.floor(Math.random() * items.length)];
+}
+
+function shuffle(items) {
+  return [...items].sort(() => Math.random() - 0.5);
+}
+
+function uniqueValues(values) {
+  return [...new Set(values.filter(Boolean))];
+}
+
+function buildToneOptions(pinyin) {
+  const chars = [...pinyin];
+  const toneIndex = chars.findIndex((char) => TONE_MARKS.has(char));
+  const fallbackOptions = [
+    pinyin,
+    `${pinyin}1`,
+    `${pinyin}2`,
+    `${pinyin}3`,
+  ];
+
+  if (toneIndex < 0) return shuffle(uniqueValues(fallbackOptions)).slice(0, 4);
+
+  const toneGroup = TONE_GROUPS.find((group) => group.includes(chars[toneIndex]));
+  const options = toneGroup.map((toneMark) => {
+    const variant = [...chars];
+    variant[toneIndex] = toneMark;
+    return variant.join('');
+  });
+
+  return shuffle(uniqueValues([pinyin, ...options])).slice(0, 4);
+}
+
+function buildRandomOptions(correctValue, poolValues) {
+  const distractors = shuffle(uniqueValues(poolValues).filter((value) => value !== correctValue))
+    .slice(0, 3);
+  return shuffle(uniqueValues([correctValue, ...distractors])).slice(0, 4);
+}
+
+function createQuizQuestion(entries) {
+  if (entries.length === 0) return null;
+
+  const target = pickRandom(entries);
+  const availableTypes = QUIZ_TYPES.filter((type) => {
+    if (type === 'word-meaning') {
+      return uniqueValues(entries.map((entry) => entry.meaning)).length >= 4;
+    }
+
+    if (type === 'meaning-word') {
+      return uniqueValues(entries.map((entry) => entry.word)).length >= 4;
+    }
+
+    return true;
+  });
+  const type = pickRandom(availableTypes);
+
+  if (type === 'word-pinyin') {
+    return {
+      type,
+      promptLabel: '병음 고르기',
+      prompt: target.word,
+      answer: target.pinyin,
+      options: buildToneOptions(target.pinyin),
+    };
+  }
+
+  if (type === 'meaning-word') {
+    return {
+      type,
+      promptLabel: '중국어 단어 고르기',
+      prompt: target.meaning,
+      answer: target.word,
+      options: buildRandomOptions(target.word, entries.map((entry) => entry.word)),
+    };
+  }
+
+  return {
+    type,
+    promptLabel: '뜻 고르기',
+    prompt: target.word,
+    answer: target.meaning,
+    options: buildRandomOptions(target.meaning, entries.map((entry) => entry.meaning)),
   };
 }
 
@@ -146,6 +243,8 @@ function App() {
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
   const [isFolderDialogOpen, setIsFolderDialogOpen] = useState(false);
   const [isFolderViewOpen, setIsFolderViewOpen] = useState(false);
+  const [quizQuestion, setQuizQuestion] = useState(null);
+  const [selectedQuizAnswer, setSelectedQuizAnswer] = useState('');
   const [authMode, setAuthMode] = useState('login');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -505,6 +604,24 @@ function App() {
     setIsFolderDialogOpen(false);
   };
 
+  const openQuizDialog = () => {
+    if (filteredEntries.length === 0) return;
+    setSelectedQuizAnswer('');
+    setStatusMessage('');
+    setErrorMessage('');
+    setQuizQuestion(createQuizQuestion(filteredEntries));
+  };
+
+  const closeQuizDialog = () => {
+    setQuizQuestion(null);
+    setSelectedQuizAnswer('');
+  };
+
+  const nextQuizQuestion = () => {
+    setSelectedQuizAnswer('');
+    setQuizQuestion(createQuizQuestion(filteredEntries));
+  };
+
   const submitAuth = async (event) => {
     event.preventDefault();
 
@@ -740,6 +857,16 @@ function App() {
               <span>{filteredEntries.length}개</span>
             </div>
             <button
+              className="secondary-button quiz-button"
+              type="button"
+              onClick={openQuizDialog}
+              disabled={!canEdit || filteredEntries.length === 0}
+              title="퀴즈 풀기"
+            >
+              <Sparkles size={16} />
+              <span>퀴즈 풀기</span>
+            </button>
+            <button
               className="primary-button add-word-button"
               type="button"
               onClick={openAddDialog}
@@ -886,6 +1013,88 @@ function App() {
                 </button>
               </div>
             </form>
+          </section>
+        </div>
+      )}
+
+      {quizQuestion && (
+        <div className="dialog-backdrop" role="presentation" onMouseDown={closeQuizDialog}>
+          <section
+            className="entry-dialog quiz-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="quizDialogTitle"
+            onMouseDown={(event) => event.stopPropagation()}
+          >
+            <div className="dialog-header">
+              <div>
+                <p className="eyebrow">Quiz</p>
+                <h2 id="quizDialogTitle">{quizQuestion.promptLabel}</h2>
+              </div>
+              <button
+                className="icon-button"
+                type="button"
+                onClick={closeQuizDialog}
+                aria-label="닫기"
+                title="닫기"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="quiz-card">
+              <p className="quiz-prompt">{quizQuestion.prompt}</p>
+              <div className="quiz-options">
+                {quizQuestion.options.map((option) => {
+                  const isSelected = selectedQuizAnswer === option;
+                  const isCorrect = option === quizQuestion.answer;
+                  const revealAnswer = Boolean(selectedQuizAnswer);
+
+                  return (
+                    <button
+                      className={[
+                        'quiz-option',
+                        isSelected ? 'selected' : '',
+                        revealAnswer && isCorrect ? 'correct' : '',
+                        revealAnswer && isSelected && !isCorrect ? 'incorrect' : '',
+                      ]
+                        .filter(Boolean)
+                        .join(' ')}
+                      type="button"
+                      key={option}
+                      onClick={() => setSelectedQuizAnswer(option)}
+                      disabled={revealAnswer}
+                    >
+                      {option}
+                    </button>
+                  );
+                })}
+              </div>
+
+              {selectedQuizAnswer && (
+                <p
+                  className={
+                    selectedQuizAnswer === quizQuestion.answer
+                      ? 'quiz-result correct'
+                      : 'quiz-result incorrect'
+                  }
+                >
+                  {selectedQuizAnswer === quizQuestion.answer
+                    ? '정답입니다.'
+                    : `정답: ${quizQuestion.answer}`}
+                </p>
+              )}
+            </div>
+
+            <div className="dialog-actions">
+              <button className="secondary-button" type="button" onClick={closeQuizDialog}>
+                닫기
+              </button>
+              <button className="primary-button" type="button" onClick={nextQuizQuestion}>
+                <Sparkles size={18} />
+                <span>다음 문제</span>
+              </button>
+            </div>
           </section>
         </div>
       )}
