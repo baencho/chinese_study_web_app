@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 import {
   AlertCircle,
   BookOpenText,
+  FileUp,
   Languages,
   LoaderCircle,
   LogIn,
@@ -15,6 +16,7 @@ import './styles.css';
 import { isSupabaseConfigured, supabase } from './supabaseClient';
 
 const EMPTY_FORM = { word: '', pinyin: '', meaning: '' };
+const DESKTOP_QUERY = '(min-width: 821px) and (hover: hover) and (pointer: fine)';
 
 function mapWordRecord(record) {
   return {
@@ -23,6 +25,81 @@ function mapWordRecord(record) {
     pinyin: record.pinyin,
     meaning: record.meaning,
   };
+}
+
+function parseCsvRows(csvText) {
+  const rows = [];
+  let field = '';
+  let row = [];
+  let inQuotes = false;
+
+  for (let index = 0; index < csvText.length; index += 1) {
+    const char = csvText[index];
+    const nextChar = csvText[index + 1];
+
+    if (char === '"' && inQuotes && nextChar === '"') {
+      field += '"';
+      index += 1;
+    } else if (char === '"') {
+      inQuotes = !inQuotes;
+    } else if (char === ',' && !inQuotes) {
+      row.push(field);
+      field = '';
+    } else if ((char === '\n' || char === '\r') && !inQuotes) {
+      if (char === '\r' && nextChar === '\n') index += 1;
+      row.push(field);
+      if (row.some((value) => value.trim())) rows.push(row);
+      field = '';
+      row = [];
+    } else {
+      field += char;
+    }
+  }
+
+  row.push(field);
+  if (row.some((value) => value.trim())) rows.push(row);
+
+  return rows;
+}
+
+function normalizeImportedEntry(entry) {
+  const word = String(entry.word ?? entry.chinese ?? '').trim();
+  const pinyin = String(entry.pinyin ?? '').trim();
+  const meaning = String(entry.meaning ?? entry.definition ?? '').trim();
+
+  return word && pinyin && meaning ? { word, pinyin, meaning } : null;
+}
+
+function parseImportFile(fileName, fileText) {
+  if (fileName.toLowerCase().endsWith('.json')) {
+    const parsed = JSON.parse(fileText);
+    if (!Array.isArray(parsed)) {
+      throw new Error('JSON 파일은 단어 배열이어야 합니다.');
+    }
+
+    return parsed.map(normalizeImportedEntry).filter(Boolean);
+  }
+
+  const rows = parseCsvRows(fileText);
+  if (rows.length === 0) return [];
+
+  const firstRow = rows[0].map((value) => value.trim().toLowerCase());
+  const hasHeader =
+    firstRow.includes('word') ||
+    firstRow.includes('chinese') ||
+    firstRow.includes('pinyin') ||
+    firstRow.includes('meaning');
+  const header = hasHeader ? firstRow : ['word', 'pinyin', 'meaning'];
+  const dataRows = hasHeader ? rows.slice(1) : rows;
+
+  return dataRows
+    .map((row) => {
+      const record = Object.fromEntries(
+        header.map((key, index) => [key, row[index] ?? '']),
+      );
+      return normalizeImportedEntry(record);
+    })
+    .filter(Boolean);
 }
 
 function App() {
@@ -37,6 +114,8 @@ function App() {
   const [invitationCode, setInvitationCode] = useState('');
   const [isSubmittingAuth, setIsSubmittingAuth] = useState(false);
   const [isLoadingWords, setIsLoadingWords] = useState(false);
+  const [isImporting, setIsImporting] = useState(false);
+  const [canImportFiles, setCanImportFiles] = useState(false);
   const [statusMessage, setStatusMessage] = useState('');
   const [errorMessage, setErrorMessage] = useState('');
 
@@ -65,6 +144,18 @@ function App() {
     return () => {
       isMounted = false;
       subscription.unsubscribe();
+    };
+  }, []);
+
+  useEffect(() => {
+    const mediaQuery = window.matchMedia(DESKTOP_QUERY);
+    const updateCanImport = () => setCanImportFiles(mediaQuery.matches);
+
+    updateCanImport();
+    mediaQuery.addEventListener('change', updateCanImport);
+
+    return () => {
+      mediaQuery.removeEventListener('change', updateCanImport);
     };
   }, []);
 
@@ -166,6 +257,53 @@ function App() {
     if (error) {
       setEntries(previousEntries);
       setErrorMessage(error.message);
+    }
+  };
+
+  const importEntries = async (event) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+
+    if (!file || !session?.user || !canImportFiles) return;
+
+    setIsImporting(true);
+    setStatusMessage('');
+    setErrorMessage('');
+
+    try {
+      const text = await file.text();
+      const importedEntries = parseImportFile(file.name, text);
+
+      if (importedEntries.length === 0) {
+        throw new Error('가져올 수 있는 단어가 없습니다.');
+      }
+
+      const { data, error } = await supabase
+        .from('words')
+        .insert(
+          importedEntries.map((entry) => ({
+            user_id: session.user.id,
+            chinese: entry.word,
+            pinyin: entry.pinyin,
+            meaning: entry.meaning,
+          })),
+        )
+        .select('id,chinese,pinyin,meaning,created_at');
+
+      if (error) throw error;
+
+      setEntries((current) => [...data.map(mapWordRecord), ...current]);
+      setStatusMessage(`${data.length}개 단어를 가져왔습니다.`);
+    } catch (error) {
+      setErrorMessage(error.message);
+    }
+
+    setIsImporting(false);
+  };
+
+  const preventImportWhenDisabled = (event) => {
+    if (!canEdit || isImporting) {
+      event.preventDefault();
     }
   };
 
@@ -380,6 +518,27 @@ function App() {
               <span>목록에 추가</span>
             </button>
           </form>
+
+          {canImportFiles && (
+            <div className="import-panel">
+              <input
+                id="wordImportFile"
+                type="file"
+                accept=".csv,.json,application/json,text/csv"
+                onChange={importEntries}
+                disabled={!canEdit || isImporting}
+              />
+              <label
+                className="secondary-button import-button"
+                htmlFor="wordImportFile"
+                aria-disabled={!canEdit || isImporting}
+                onClick={preventImportWhenDisabled}
+              >
+                <FileUp size={16} />
+                <span>{isImporting ? '가져오는 중' : 'CSV/JSON 가져오기'}</span>
+              </label>
+            </div>
+          )}
         </aside>
 
         <section className="list-panel" aria-label="내가 입력한 단어 목록">

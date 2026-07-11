@@ -233,6 +233,30 @@ h2 {
   background: #efe7d8;
 }
 
+.import-panel {
+  display: none;
+  margin-top: 16px;
+}
+
+.import-panel input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+}
+
+.import-button {
+  width: 100%;
+  min-height: 44px;
+}
+
+.import-button[aria-disabled="true"] {
+  cursor: not-allowed;
+  opacity: 0.62;
+}
+
 .setup-state,
 .loading-state {
   gap: 10px;
@@ -416,6 +440,12 @@ h2 {
 
   .workspace {
     grid-template-columns: 1fr;
+  }
+}
+
+@media (min-width: 821px) and (hover: hover) and (pointer: fine) {
+  .import-panel {
+    display: block;
   }
 }
 
